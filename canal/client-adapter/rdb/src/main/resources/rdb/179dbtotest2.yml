@@ -1,0 +1,9 @@
+destination: 179_db
+groupId: g1
+outerAdapterKey: key2
+concurrent: true
+dbMapping:
+  mapAll: true
+  mirrorDb: true
+  database: test2
+  mapAll: true

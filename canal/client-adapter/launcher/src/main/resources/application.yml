@@ -1,0 +1,37 @@
+server:
+  port: 8080
+logging:
+  level:
+    com.alibaba.otter.canal.client.adapter.rdb: DEBUG
+canal.conf:
+  mode: tcp # kafka rocketMQ
+  canalServerHost: 127.0.0.1:11111
+  batchSize: 500
+  syncBatchSize: 1000
+  retries: 0
+  timeout:
+  accessKey:
+  secretKey:
+  canalAdapters:
+  - instance: 179_db
+    groups:
+    - groupId: g1
+      outerAdapters:
+#      - name: logger
+#      - name: rdb
+#        key: key1
+#        properties:
+#          jdbc.driverClassName: com.mysql.jdbc.Driver
+#          jdbc.url: jdbc:mysql://10.4.21.168:4000/test1
+#          jdbc.username: root
+#          jdbc.password: LiXiang_P@ssw0rd
+      - name: rdb
+        key: key2
+        properties:
+          jdbc.driverClassName: com.mysql.jdbc.Driver
+          jdbc.url: jdbc:mysql://10.4.21.168:4000/test2
+          jdbc.username: root
+          jdbc.password: LiXiang_P@ssw0rd
+#spring:
+#    profiles:
+#       include:xx
