@@ -153,7 +153,7 @@ public class RdbMirrorDbSyncService {
     private void executeDdl(MirrorDbConfig mirrorDbConfig, Dml ddl) {
         try (Connection conn = dataSource.getConnection(); Statement statement = conn.createStatement()) {
            if(ddlType_Alter.equalsIgnoreCase(ddl.getType())) {
-                String ddlList[] = StringUtils.split(ddl.getSql(), "\n");
+                String ddlList[] = StringUtils.split(ddl.getSql(), "\r\n");
                 List<String> ddlFragment = new ArrayList<>();
                 if (ddlList.length > 0) {
                     String tableFragment = ddlList[0];
@@ -165,8 +165,9 @@ public class RdbMirrorDbSyncService {
                     //
                     statement.execute(sql);
                 }
-            }
-            statement.execute(ddl.getSql());
+            }else{
+               statement.execute(ddl.getSql());
+           }
 
             // 移除对应配置
             mirrorDbConfig.getTableConfig().remove(ddl.getTable());
