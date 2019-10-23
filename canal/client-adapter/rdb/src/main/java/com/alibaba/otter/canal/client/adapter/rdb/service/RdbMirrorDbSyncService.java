@@ -162,11 +162,10 @@ public class RdbMirrorDbSyncService {
                     }
                 }
                 for (String sql : ddlFragment) {
-                    logger.debug(sql);
+                    //
                     statement.execute(sql);
                 }
             }
-            else
             statement.execute(ddl.getSql());
 
             // 移除对应配置
