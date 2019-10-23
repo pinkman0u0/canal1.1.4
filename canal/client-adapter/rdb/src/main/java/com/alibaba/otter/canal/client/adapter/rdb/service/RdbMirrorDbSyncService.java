@@ -166,8 +166,9 @@ public class RdbMirrorDbSyncService {
                     statement.execute(sql);
                 }
             }
-            statement.execute(ddl.getSql());
-
+            else {
+               statement.execute(ddl.getSql());
+           }
             // 移除对应配置
             mirrorDbConfig.getTableConfig().remove(ddl.getTable());
             if (logger.isTraceEnabled()) {
