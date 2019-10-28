@@ -153,7 +153,10 @@ public class RdbMirrorDbSyncService {
     private void executeDdl(MirrorDbConfig mirrorDbConfig, Dml ddl) {
         try (Connection conn = dataSource.getConnection(); Statement statement = conn.createStatement()) {
            if(ddlType_Alter.equalsIgnoreCase(ddl.getType())) {
-                String ddlList[] = StringUtils.split(ddl.getSql(), "\n");
+               //Navicate可视化界面执行DDL操作时，生成的SQL会带有\r
+               String ddl_sql = ddl.getSql();
+               ddl_sql = ddl_sql.replaceAll("\r","").replaceAll("utf8","utf8mb4");//TIDB默认utf8mb4
+                String ddlList[] = StringUtils.split(ddl_sql, "\n");
                 List<String> ddlFragment = new ArrayList<>();
                 if (ddlList.length > 0) {
                     String tableFragment = ddlList[0];
