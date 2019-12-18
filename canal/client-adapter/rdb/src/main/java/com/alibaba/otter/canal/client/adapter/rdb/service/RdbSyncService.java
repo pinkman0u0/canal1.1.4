@@ -276,6 +276,7 @@ public class RdbSyncService {
         try {
             batchExecutor.execute(insertSql.toString(), values);
         } catch (SQLException e) {
+            logger.error("==========SQL:{},DML:{}", insertSql,JSON.toJSONString(dml, SerializerFeature.WriteMapNullValue));
             if (skipDupException
                 && (e.getMessage().contains("Duplicate entry") || e.getMessage().startsWith("ORA-00001:"))) {
                 // ignore
@@ -341,7 +342,6 @@ public class RdbSyncService {
             return;
         }
         int len = updateSql.length();
-        logger.info("print sql: {}", updateSql);
         updateSql.delete(len - 2, len).append(" WHERE ");
           if(dml.isPrimary()) {
               // 拼接主键
@@ -368,8 +368,12 @@ public class RdbSyncService {
 
           }
 
-        logger.info("Update target table, sql: {}", updateSql);
-        batchExecutor.execute(updateSql.toString(), values);
+        try{
+            batchExecutor.execute(updateSql.toString(), values);
+        }catch (SQLException e){
+            logger.error("==========SQL:{},DML:{}", updateSql,JSON.toJSONString(dml, SerializerFeature.WriteMapNullValue));
+            throw e;
+        }
         if (logger.isTraceEnabled()) {
             logger.trace("Update target table, sql: {}", updateSql);
         }
@@ -397,7 +401,12 @@ public class RdbSyncService {
         List<Map<String, ?>> values = new ArrayList<>();
         // 拼接主键
         appendCondition(dbMapping, sql, ctype, values, data);
-        batchExecutor.execute(sql.toString(), values);
+        try{
+            batchExecutor.execute(sql.toString(), values);
+        }catch (SQLException e){
+            logger.error("==========SQL:{},DML:{}", sql,JSON.toJSONString(dml, SerializerFeature.WriteMapNullValue));
+            throw e;
+        }
         if (logger.isTraceEnabled()) {
             logger.trace("Delete from target table, sql: {}", sql);
         }
@@ -412,7 +421,12 @@ public class RdbSyncService {
         DbMapping dbMapping = config.getDbMapping();
         StringBuilder sql = new StringBuilder();
         sql.append("TRUNCATE TABLE ").append(SyncUtil.getDbTableName(dbMapping));
-        batchExecutor.execute(sql.toString(), new ArrayList<>());
+        try {
+            batchExecutor.execute(sql.toString(), new ArrayList<>());
+        }catch (SQLException e){
+            logger.error("==========SQL:{},DML:{}", sql,"");
+            throw e;
+        }
         if (logger.isTraceEnabled()) {
             logger.trace("Truncate target table, sql: {}", sql);
         }

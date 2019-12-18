@@ -153,9 +153,9 @@ public class RdbMirrorDbSyncService {
     private void executeDdl(MirrorDbConfig mirrorDbConfig, Dml ddl) {
         try (Connection conn = dataSource.getConnection(); Statement statement = conn.createStatement()) {
            if(ddlType_Alter.equalsIgnoreCase(ddl.getType())) {
-               //Navicate可视化界面执行DDL操作时，生成的SQL会带有\r
-               String ddl_sql = ddl.getSql();
-               ddl_sql = ddl_sql.replaceAll("\r","").replaceAll("utf8","utf8mb4");//TIDB默认utf8mb4
+                //Navicate可视化界面执行DDL操作时，生成的SQL会带有\r
+                String ddl_sql = ddl.getSql();
+                ddl_sql = ddl_sql.replaceAll("\r","").replaceAll("utf8","utf8mb4");//TIDB默认utf8mb4
                 String ddlList[] = StringUtils.split(ddl_sql, "\n");
                 List<String> ddlFragment = new ArrayList<>();
                 if (ddlList.length > 0) {
@@ -166,11 +166,11 @@ public class RdbMirrorDbSyncService {
                 }
                 for (String sql : ddlFragment) {
                     //
-                    statement.execute(sql);
+                        statement.execute(sql);
                 }
             }
             else {
-               statement.execute(ddl.getSql());
+                   statement.execute(ddl.getSql());
            }
             // 移除对应配置
             mirrorDbConfig.getTableConfig().remove(ddl.getTable());
@@ -178,6 +178,7 @@ public class RdbMirrorDbSyncService {
                 logger.trace("Execute DDL sql: {} for database: {}", ddl.getSql(), ddl.getDatabase());
             }
         } catch (Exception e) {
+            logger.error("==========SQL:{},DML:{}", ddl.getSql(),JSON.toJSONString(ddl, SerializerFeature.WriteMapNullValue));
             throw new RuntimeException(e);
         }
     }
