@@ -1,13 +1,12 @@
 package com.alibaba.otter.canal.client.adapter.rdb.service;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -113,8 +112,8 @@ public class RdbSyncService {
                     futures.add(executorThreads[i].submit(() -> {
                         try {
                             dmlsPartition[j].forEach(syncItem -> sync(batchExecutors[j],
-                                syncItem.config,
-                                syncItem.singleDml));
+                                    syncItem.config,
+                                    syncItem.singleDml));
                             dmlsPartition[j].clear();
                             batchExecutors[j].commit();
                             return true;
@@ -152,49 +151,49 @@ public class RdbSyncService {
         sync(dmls, dml -> {
             if (dml.getIsDdl() != null && dml.getIsDdl() && StringUtils.isNotEmpty(dml.getSql())) {
                 // DDL
-            columnsTypeCache.remove(dml.getDestination() + "." + dml.getDatabase() + "." + dml.getTable());
-            return false;
-        } else {
-            // DML
-            String destination = StringUtils.trimToEmpty(dml.getDestination());
-            String groupId = StringUtils.trimToEmpty(dml.getGroupId());
-            String database = dml.getDatabase();
-            String table = dml.getTable();
-            Map<String, MappingConfig> configMap;
-            if (envProperties != null && !"tcp".equalsIgnoreCase(envProperties.getProperty("canal.conf.mode"))) {
-                configMap = mappingConfig.get(destination + "-" + groupId + "_" + database + "-" + table);
+                columnsTypeCache.remove(dml.getDestination() + "." + dml.getDatabase() + "." + dml.getTable());
+                return false;
             } else {
-                configMap = mappingConfig.get(destination + "_" + database + "-" + table);
-            }
-
-            if (configMap == null) {
-                return false;
-            }
-
-            if (configMap.values().isEmpty()) {
-                return false;
-            }
-
-            for (MappingConfig config : configMap.values()) {
-                if (config.getConcurrent()) {
-                    List<SingleDml> singleDmls = SingleDml.dml2SingleDmls(dml);
-                    singleDmls.forEach(singleDml -> {
-                        int hash = pkHash(config.getDbMapping(), singleDml.getData());
-                        SyncItem syncItem = new SyncItem(config, singleDml);
-                        dmlsPartition[hash].add(syncItem);
-                    });
+                // DML
+                String destination = StringUtils.trimToEmpty(dml.getDestination());
+                String groupId = StringUtils.trimToEmpty(dml.getGroupId());
+                String database = dml.getDatabase();
+                String table = dml.getTable();
+                Map<String, MappingConfig> configMap;
+                if (envProperties != null && !"tcp".equalsIgnoreCase(envProperties.getProperty("canal.conf.mode"))) {
+                    configMap = mappingConfig.get(destination + "-" + groupId + "_" + database + "-" + table);
                 } else {
-                    int hash = 0;
-                    List<SingleDml> singleDmls = SingleDml.dml2SingleDmls(dml);
-                    singleDmls.forEach(singleDml -> {
-                        SyncItem syncItem = new SyncItem(config, singleDml);
-                        dmlsPartition[hash].add(syncItem);
-                    });
+                    configMap = mappingConfig.get(destination + "_" + database + "-" + table);
                 }
+
+                if (configMap == null) {
+                    return false;
+                }
+
+                if (configMap.values().isEmpty()) {
+                    return false;
+                }
+
+                for (MappingConfig config : configMap.values()) {
+                    if (config.getConcurrent()) {
+                        List<SingleDml> singleDmls = SingleDml.dml2SingleDmls(dml);
+                        singleDmls.forEach(singleDml -> {
+                            int hash = pkHash(config.getDbMapping(), singleDml.getData());
+                            SyncItem syncItem = new SyncItem(config, singleDml);
+                            dmlsPartition[hash].add(syncItem);
+                        });
+                    } else {
+                        int hash = 0;
+                        List<SingleDml> singleDmls = SingleDml.dml2SingleDmls(dml);
+                        singleDmls.forEach(singleDml -> {
+                            SyncItem syncItem = new SyncItem(config, singleDml);
+                            dmlsPartition[hash].add(syncItem);
+                        });
+                    }
+                }
+                return true;
             }
-            return true;
-        }
-    }   );
+        }   );
     }
 
     /**
@@ -210,8 +209,10 @@ public class RdbSyncService {
                 String type = dml.getType();
                 if (type != null && type.equalsIgnoreCase("INSERT")) {
                     insert(batchExecutor, config, dml);
+                    insertZipper(batchExecutor, config, dml);
                 } else if (type != null && type.equalsIgnoreCase("UPDATE")) {
                     update(batchExecutor, config, dml);
+                    updateZipper(batchExecutor, config, dml);
                 } else if (type != null && type.equalsIgnoreCase("DELETE")) {
                     delete(batchExecutor, config, dml);
                 } else if (type != null && type.equalsIgnoreCase("TRUNCATE")) {
@@ -278,7 +279,7 @@ public class RdbSyncService {
         } catch (SQLException e) {
             logger.error("==========SQL:{},DML:{}", insertSql,JSON.toJSONString(dml, SerializerFeature.WriteMapNullValue));
             if (skipDupException
-                && (e.getMessage().contains("Duplicate entry") || e.getMessage().startsWith("ORA-00001:"))) {
+                    && (e.getMessage().contains("Duplicate entry") || e.getMessage().startsWith("ORA-00001:"))) {
                 // ignore
                 // TODO 增加更多关系数据库的主键冲突的错误码
             } else {
@@ -290,7 +291,109 @@ public class RdbSyncService {
         }
 
     }
+    /**
+     * 更新拉链信息到其他数据库的对应表(插入操作)
+     *
+     * @param config 配置项
+     * @param dml DML数据
+     */
+    private void insertZipper(BatchExecutor batchExecutor, MappingConfig config, SingleDml dml) throws SQLException {
+        Map<String, Object> data = dml.getData();
+        if (data == null || data.isEmpty()) {
+            return;
+        }
+        DbMapping dbMapping = config.getDbMapping();
+        commonBatch(batchExecutor, dml, data, dbMapping);
+    }
 
+    private void commonBatch(BatchExecutor batchExecutor, SingleDml dml, Map<String, Object> data, DbMapping dbMapping) {
+        StringBuilder insertSql = new StringBuilder();
+        PreparedStatement pstmt = null;
+        try{
+            //读取配置文件，判断是否需要拉链表
+            InputStream in=this.getClass().getClassLoader().getResourceAsStream("zipper.properties");
+            Properties properties=new Properties();
+            try {
+                //将信息有key-value形式化properties
+                properties.load(in);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            String zipper_table=properties.getProperty("zipper_table");
+            List<String> zipper_table_list = Arrays.asList(zipper_table.split(",",-1));
+            if(zipper_table_list.contains(dml.getTable())){
+                //创建表
+                String createSql = "CREATE TABLE IF NOT EXISTS `odslinks`.`" + dml.getTable() +"_zipper`" +
+                        "(\n" +
+                        "  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,\n" +
+                        "  `old_value` json NULL COMMENT '原始值',\n" +
+                        "  `update_value` json NULL COMMENT '修改值',\n" +
+                        "  `primary_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL DEFAULT NULL COMMENT '更新的主键',\n" +
+                        "  `create_time` datetime(0) NULL DEFAULT NULL COMMENT '数据时间',\n" +
+                        "  PRIMARY KEY (`id`) USING BTREE\n" +
+                        ") ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_bin ROW_FORMAT = Compact;";
+                batchExecutor.execute(createSql, new ArrayList<>());
+                String old_value = "{}";
+                String update_value = "{}";
+                String primary_key = "";//主键
+                if(dml.getOld() != null&&dml.getData()!=null){
+                    Map<String, Object> newData=new HashMap<>();
+                    Map<String, Object> oldMap = dml.getOld();
+                    Map<String, Object> data1 = dml.getData();
+                    oldMap.forEach((srcName, srcVal) -> {
+                        newData.put(srcName,data1.get(srcName));
+                    });
+                    old_value = JSON.toJSONString(oldMap);
+                    update_value = JSON.toJSONString(newData);
+                }else{
+                    update_value = JSON.toJSONString(dml.getData());
+                }
+                if(dml.isPrimary()){
+                    Map<String,String> map = dbMapping.getTargetPk();
+                    for (String key: map.keySet()){
+                        primary_key = key;
+                    }
+                }
+                insertSql.append("INSERT INTO `odslinks`.`"+dml.getTable()+"_zipper`(old_value,update_value,primary_key,create_time) VALUES(?,?,?,NOW())");
+                pstmt = batchExecutor.getConn().prepareStatement(insertSql.toString());
+                pstmt.setString(1,old_value);
+                pstmt.setString(2,update_value);
+                pstmt.setString(3,data.get(primary_key)+"");
+                pstmt.execute();
+            }
+        }catch (SQLException e){
+            e.printStackTrace();
+        }finally {
+            if(pstmt != null){
+                try {
+                    pstmt.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+
+    }
+
+    /**
+     * 更新拉链信息到其他数据库的对应表(更新操作)
+     *
+     * @param config 配置项
+     * @param dml DML数据
+     */
+    private void updateZipper(BatchExecutor batchExecutor, MappingConfig config, SingleDml dml) throws SQLException {
+        Map<String, Object> data = dml.getData();
+        if (data == null || data.isEmpty()) {
+            return;
+        }
+        Map<String, Object> old = dml.getOld();
+        if (old == null || old.isEmpty()) {
+            return;
+        }
+        DbMapping dbMapping = config.getDbMapping();
+        commonBatch(batchExecutor, dml, data, dbMapping);
+    }
     /**
      * 更新操作
      *
@@ -343,30 +446,30 @@ public class RdbSyncService {
         }
         int len = updateSql.length();
         updateSql.delete(len - 2, len).append(" WHERE ");
-          if(dml.isPrimary()) {
-              // 拼接主键
+        if(dml.isPrimary()) {
+            // 拼接主键
 
-              appendCondition(dbMapping, updateSql, ctype, values, data, old);
-          }
-            else
-          {
-              old.forEach((srcColumnName, srcColumnVal) -> {
-                  if (srcColumnName == null) {
-                      srcColumnName = Util.cleanColumn(srcColumnName);
-                  }
-                  Integer type = ctype.get(Util.cleanColumn(srcColumnName).toLowerCase());
-                  updateSql.append("`" + srcColumnName + "`").append("=?  AND ");
-                  BatchExecutor.setValue(values, type, old.get(srcColumnName));
+            appendCondition(dbMapping, updateSql, ctype, values, data, old);
+        }
+        else
+        {
+            old.forEach((srcColumnName, srcColumnVal) -> {
+                if (srcColumnName == null) {
+                    srcColumnName = Util.cleanColumn(srcColumnName);
+                }
+                Integer type = ctype.get(Util.cleanColumn(srcColumnName).toLowerCase());
+                updateSql.append("`" + srcColumnName + "`").append("=?  AND ");
+                BatchExecutor.setValue(values, type, old.get(srcColumnName));
 
-              });
+            });
 
-              int slen = updateSql.length();
-              updateSql.delete(slen - 4, slen);
-
-
+            int slen = updateSql.length();
+            updateSql.delete(slen - 4, slen);
 
 
-          }
+
+
+        }
 
         try{
             batchExecutor.execute(updateSql.toString(), values);
